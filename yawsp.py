@@ -92,14 +92,17 @@ _handle = int(sys.argv[1])
 _addon = xbmcaddon.Addon()
 _session = requests.Session()
 _session.headers.update(HEADERS)
-_profile = translatePath( _addon.getAddonInfo('profile'))
-# ——— TMDB klient ———
-from themoviedb import TMDB
-tmdb = TMDB(_addon, _profile)
+
+_profile = translatePath(_addon.getAddonInfo('profile'))
 try:
     _profile = _profile.decode("utf-8")
-except:
+except (AttributeError, UnicodeDecodeError):
     pass
+
+# ——— TMDB klient ———
+
+tmdb = TMDB(_addon, _profile)
+
 
 def get_url(**kwargs):
     return '{0}?{1}'.format(_url, urlencode(kwargs, 'utf-8'))
@@ -109,8 +112,7 @@ def api(fnct, data):
     return response
 
 def is_ok(xml):
-    status = xml.find('status').text
-    return status == 'OK'
+    return xml.find('status').text == 'OK'
 
 def popinfo(message, heading=_addon.getAddonInfo('name'), icon=xbmcgui.NOTIFICATION_INFO, time=3000, sound=False): #NOTIFICATION_WARNING NOTIFICATION_ERROR
     xbmcgui.Dialog().notification(heading, message, icon, time, sound=sound)
@@ -295,137 +297,117 @@ def removesearch(what):
 
 def dosearch(token, what, category, sort, limit, offset, action):
     xbmc.log(f"[dosearch] ENTER what={what!r} cat={category} sort={sort} lim={limit} off={offset}", xbmc.LOGDEBUG)
-    response = api('search', {
-        'what': '' if what == NONE_WHAT else what,
-        'category': category,
-        'sort': sort,
-        'limit': limit,
-        'offset': offset,
-        'wst': token,
-        'maybe_removed': 'true'
-    })
-    xml = ET.fromstring(response.content)
-
-    if not is_ok(xml):
-        popinfo(_addon.getLocalizedString(30107), icon=xbmcgui.NOTIFICATION_WARNING)
+    try:
+        response = api('search', {
+            'what': '' if what == NONE_WHAT else what,
+            'category': category,
+            'sort': sort,
+            'limit': limit,
+            'offset': offset,
+            'wst': token,
+            'maybe_removed': 'true'
+        })
+    except Exception as e:
+        xbmc.log(f"[dosearch] HTTP error: {e}", xbmc.LOGERROR)
+        popinfo("Webshare", f"HTTP chyba: {e}", icon=xbmcgui.NOTIFICATION_ERROR)
         return
 
-    # --- Předchozí stránka ---
+    xbmc.log(f"[dosearch] HTTP status: {response.status_code}", xbmc.LOGDEBUG)
+    xbmc.log(f"[dosearch] Response body: {response.content!r}", xbmc.LOGDEBUG)
+
+    try:
+        xml = ET.fromstring(response.content)
+    except Exception as e:
+        xbmc.log(f"[dosearch] XML parse error: {e}", xbmc.LOGERROR)
+        popinfo("Webshare", f"Chyba parsování odpovědi: {e}", icon=xbmcgui.NOTIFICATION_ERROR)
+        return
+
+    if not is_ok(xml):
+        msg = xml.find('message').text if xml.find('message') is not None else 'Unknown'
+        xbmc.log(f"[dosearch] API status not OK: {msg}", xbmc.LOGERROR)
+        popinfo("Webshare", f"Chyba API: {msg}", icon=xbmcgui.NOTIFICATION_ERROR)
+        return
+
+    # Předchozí stránka
     if offset > 0:
-        xbmc.log("[dosearch] Adding PREV page item", xbmc.LOGDEBUG)
         listitem = xbmcgui.ListItem(label=_addon.getLocalizedString(30206))
         listitem.setArt({'icon': 'DefaultAddonsSearch.png'})
         xbmcplugin.addDirectoryItem(
             _handle,
-            get_url(
-                action=action,
-                what=what,
-                category=category,
-                sort=sort,
-                limit=limit,
-                offset=offset - limit if offset > limit else 0
-            ),
-            listitem,
-            True
+            get_url(action=action, what=what, category=category, sort=sort,
+                    limit=limit, offset=offset - limit if offset > limit else 0),
+            listitem, True
         )
 
-    # --- Hlavní seznam výsledků se scoringem ---
+    # Scoring výsledků
     items = [todict(f) for f in xml.iter('file')]
-    xbmc.log(f"[dosearch] Loaded {len(items)} raw items", xbmc.LOGDEBUG)
+    xbmc.log(f"[dosearch] Loaded {len(items)} items", xbmc.LOGDEBUG)
 
     query_tokens = clean_and_tokenize(what)
     scored = []
     for item in items:
-        # relevance
-        name_tokens = clean_and_tokenize(item.get('name',''))
+        name_tokens = clean_and_tokenize(item.get('name', ''))
         rel = len(set(query_tokens) & set(name_tokens))
-        # kvalita
-        stream = item.get('video',{}).get('stream',{})
-        if isinstance(stream,list): stream = stream[0]
+        stream = item.get('video', {}).get('stream', {})
+        if isinstance(stream, list): stream = stream[0]
         try:
-            w = int(stream.get('width',0)); h = int(stream.get('height',0))
+            w = int(stream.get('width', 0)); h = int(stream.get('height', 0))
         except:
             w = h = 0
         qual = w * h
-        scored.append((rel,qual,item))
-    scored.sort(key=lambda x:(x[0],x[1]), reverse=True)
-    xbmc.log(f"[dosearch] Scored items, top scores={(scored[0][0],scored[0][1]) if scored else 'n/a'}", xbmc.LOGDEBUG)
+        scored.append((rel, qual, item))
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    xbmc.log(f"[dosearch] Top score={scored[0][:2] if scored else 'n/a'}", xbmc.LOGDEBUG)
 
     for rel, qual, item in scored:
-        xbmc.log(f"[dosearch] Rendering item {item.get('name')} rel={rel} qual={qual}", xbmc.LOGDEBUG)
-        # context menu
-        commands = [
-            (_addon.getLocalizedString(30214),
-             'Container.Update(' + get_url(
-                 action=action,
-                 toqueue=item['ident'],
-                 what=what,
-                 category=category,
-                 sort=sort,
-                 limit=limit,
-                 offset=offset
-             ) + ')')
-        ]
+        xbmc.log(f"[dosearch] Render {item.get('name')} rel={rel} qual={qual}", xbmc.LOGDEBUG)
+        commands = [(_addon.getLocalizedString(30214),
+                     'Container.Update(' + get_url(action=action, toqueue=item['ident'],
+                                                     what=what, category=category,
+                                                     sort=sort, limit=limit,
+                                                     offset=offset) + ')')]
         listitem = tolistitem(item, commands)
 
-        # TMDB metadata
+        # TMDb obohacení
         title = item.get('name') or item.get('title')
         tmdb_key = _addon.getSetting('tmdb_token')
         if title and tmdb_key:
-            xbmc.log(f"[dosearch] Looking up TMDB for {title!r}", xbmc.LOGDEBUG)
-            tmdb_results = tmdb.search_movie(title)
-            xbmc.log(f"[dosearch] TMDB returned {len(tmdb_results) if tmdb_results else 0} results", xbmc.LOGDEBUG)
+            xbmc.log(f"[dosearch] TMDb lookup for {title!r}", xbmc.LOGDEBUG)
+            tmdb_results = tmdb.search_movie(title) or []
+            xbmc.log(f"[dosearch] TMDb results: {len(tmdb_results)}", xbmc.LOGDEBUG)
             if tmdb_results:
                 meta = tmdb_results[0]
                 poster = tmdb.get_poster_url(meta.get('poster_path'))
-                if poster:
-                    listitem.setArt({'thumb': poster})
+                if poster: listitem.setArt({'thumb': poster})
                 listitem.setInfo('video', {
-                    'title':  meta.get('title'),
-                    'plot':   meta.get('overview',''),
-                    'rating': meta.get('vote_average',0)
+                    'title': meta.get('title'),
+                    'plot': meta.get('overview', ''),
+                    'rating': meta.get('vote_average', 0)
                 })
 
         xbmcplugin.addDirectoryItem(
             _handle,
-            get_url(
-                action=action,
-                what=what,
-                category=category,
-                sort=sort,
-                limit=limit,
-                offset=offset,
-                toqueue=item['ident']
-            ),
-            listitem,
-            False
+            get_url(action=action, what=what, category=category,
+                    sort=sort, limit=limit, offset=offset,
+                    toqueue=item['ident']),
+            listitem, False
         )
 
-    # --- Další stránka ---
+    # Další stránka
     try:
         total = int(xml.find('total').text)
     except:
         total = 0
-    xbmc.log(f"[dosearch] total from API={total}", xbmc.LOGDEBUG)
+    xbmc.log(f"[dosearch] total={total}", xbmc.LOGDEBUG)
     if offset + limit < total:
-        xbmc.log("[dosearch] Adding NEXT page item", xbmc.LOGDEBUG)
         listitem = xbmcgui.ListItem(label=_addon.getLocalizedString(30207))
         listitem.setArt({'icon': 'DefaultAddonsSearch.png'})
         xbmcplugin.addDirectoryItem(
             _handle,
-            get_url(
-                action=action,
-                what=what,
-                category=category,
-                sort=sort,
-                limit=limit,
-                offset=offset + limit
-            ),
-            listitem,
-            True
+            get_url(action=action, what=what, category=category,
+                    sort=sort, limit=limit, offset=offset + limit),
+            listitem, True
         )
-
-
     else:
         popinfo(_addon.getLocalizedString(30107), icon=xbmcgui.NOTIFICATION_WARNING)
 
