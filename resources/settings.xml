@@ -8,9 +8,7 @@
 
         <!-- TMDB settings -->
         <setting type="lsep" label="TMDB" />
-        <setting id="tmdb_api_key" type="text"
-            label="TMDB API Key"
-            default="" />
+        <setting id="tmdb_token" type="text" label="API Token" default="" />
         <setting label="Language" id="tmdb_lang" type="select" values="cs-CZ|en-US" default="en-US" />
 
         <setting type="lsep" label="30010" />
