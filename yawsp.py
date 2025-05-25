@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import hashlib
 # Module: default
 # Author: cache-sk
 # Created on: 10.5.2020
