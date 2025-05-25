@@ -738,6 +738,15 @@ def menu():
     listitem = xbmcgui.ListItem(label=_addon.getLocalizedString(30201))
     listitem.setArt({'icon': 'DefaultAddonsSearch.png'})
     xbmcplugin.addDirectoryItem(_handle, get_url(action='search'), listitem, True)
+       
+    # Nově přidané
+    listitem = xbmcgui.ListItem(label="Nově přidané")
+    listitem.setArt({'icon': 'DefaultAddonsRecentlyUpdated.png'})
+    xbmcplugin.addDirectoryItem(
+        _handle,
+        get_url(action='search', what=NONE_WHAT, sort=SORTS[1]),
+        listitem,
+        True)
 
     # Series
     listitem = xbmcgui.ListItem(label='Seriály')
