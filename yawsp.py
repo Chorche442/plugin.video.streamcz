@@ -100,7 +100,7 @@ except (AttributeError, UnicodeDecodeError):
     pass
 
 # ——— TMDB klient ———
-
+from themoviedb import TMDB
 tmdb = TMDB(_addon, _profile)
 
 
