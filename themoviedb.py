@@ -140,3 +140,23 @@ def save_series_structure(series_data, folder_path):
             file.write(data)
     except Exception as e:
         xbmc.log(f'WebshareCinema: Error saving series data: {str(e)}', level=xbmc.LOGERROR)
+ def search_movie(self, movie_title):
+        """Search TMDb for a movie by title."""
+        url = "https://api.themoviedb.org/3/search/movie"
+        params = {
+            "api_key": self.API_TOKEN,
+            "query": movie_title,
+            "language": self.LANG,
+            "include_adult": "false"
+        }
+        r = requests.get(url, params=params, timeout=10)
+        if r.status_code != 200:
+            xbmc.log(f"TMDb movie search error {r.status_code}", xbmc.LOGERROR)
+            return []
+        return r.json().get("results", [])
+
+    def get_poster_url(self, poster_path, size="w500"):
+        """Build full image URL from TMDb poster path."""
+        if not poster_path:
+            return None
+        return f"https://image.tmdb.org/t/p/{size}{poster_path}"
