@@ -315,20 +315,61 @@ def dosearch(token, what, category, sort, limit, offset, action):
         listitem.setArt({'icon': 'DefaultAddonsSearch.png'})
         xbmcplugin.addDirectoryItem(
             _handle,
-            get_url(action=action, what=what, category=category,
-                    sort=sort, limit=limit,
-                    offset=offset - limit if offset > limit else 0),
+            get_url(
+                action=action,
+                what=what,
+                category=category,
+                sort=sort,
+                limit=limit,
+                offset=offset - limit if offset > limit else 0
+            ),
             listitem,
             True
         )
 
-    # --- Hlavní seznam výsledků ---
-    for file in xml.iter('file'):
-        item = todict(file)
+    # --- Hlavní seznam výsledků se scoringem ---
+    items = [todict(file) for file in xml.iter('file')]
+
+    # Tokeny původního dotazu
+    query_tokens = clean_and_tokenize(what)
+
+    # Vypočítáme skóre (relevance + kvalita)
+    scored = []
+    for item in items:
+        # relevance
+        name_tokens = clean_and_tokenize(item.get('name', ''))
+        rel_score = len(set(query_tokens) & set(name_tokens))
+        # kvalita (rozlišení z prvního video streamu)
+        stream = item.get('video', {}).get('stream', {})
+        if isinstance(stream, list):
+            stream = stream[0]
+        try:
+            width = int(stream.get('width', 0))
+            height = int(stream.get('height', 0))
+        except:
+            width = height = 0
+        qual_score = width * height
+        scored.append((rel_score, qual_score, item))
+
+    # Seřadíme sestupně dle relevance a kvality
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+
+    # Vykreslíme každý prvek
+    for rel_score, qual_score, item in scored:
+        # Context menu položka „Přidat do fronty“
         commands = [
-            (_addon.getLocalizedString(30214),
-             'Container.Update(' + get_url(action=action, toqueue=item['ident'],
-                                            what=what, offset=offset) + ')')
+            (
+                _addon.getLocalizedString(30214),
+                'Container.Update(' + get_url(
+                    action=action,
+                    toqueue=item['ident'],
+                    what=what,
+                    category=category,
+                    sort=sort,
+                    limit=limit,
+                    offset=offset
+                ) + ')'
+            )
         ]
         listitem = tolistitem(item, commands)
 
@@ -336,10 +377,9 @@ def dosearch(token, what, category, sort, limit, offset, action):
         title = item.get('name') or item.get('title')
         tmdb_key = _addon.getSetting('tmdb_token')
         if title and tmdb_key:
-            tmdb = TMDB(_addon, _profile)
             tmdb_results = tmdb.search_movie(title)
             if tmdb_results:
-                meta   = tmdb_results[0]
+                meta = tmdb_results[0]
                 poster = tmdb.get_poster_url(meta.get('poster_path'))
                 if poster:
                     listitem.setArt({'thumb': poster})
@@ -351,9 +391,15 @@ def dosearch(token, what, category, sort, limit, offset, action):
 
         xbmcplugin.addDirectoryItem(
             _handle,
-            get_url(action=action, what=what, category=category,
-                    sort=sort, limit=limit, offset=offset,
-                    toqueue=item['ident']),
+            get_url(
+                action=action,
+                what=what,
+                category=category,
+                sort=sort,
+                limit=limit,
+                offset=offset,
+                toqueue=item['ident']
+            ),
             listitem,
             False
         )
@@ -363,17 +409,23 @@ def dosearch(token, what, category, sort, limit, offset, action):
         total = int(xml.find('total').text)
     except:
         total = 0
-
     if offset + limit < total:
         listitem = xbmcgui.ListItem(label=_addon.getLocalizedString(30207))
         listitem.setArt({'icon': 'DefaultAddonsSearch.png'})
         xbmcplugin.addDirectoryItem(
             _handle,
-            get_url(action=action, what=what, category=category,
-                    sort=sort, limit=limit, offset=offset + limit),
+            get_url(
+                action=action,
+                what=what,
+                category=category,
+                sort=sort,
+                limit=limit,
+                offset=offset + limit
+            ),
             listitem,
             True
         )
+
 
     else:
         popinfo(_addon.getLocalizedString(30107), icon=xbmcgui.NOTIFICATION_WARNING)
