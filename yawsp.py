@@ -877,7 +877,7 @@ def series_search(params):
 
         # 7) Přejdi na detail seriálu
         xbmc.executebuiltin(
-            f"Container.Update({get_url(action='series_detail', series_name=series_name)})"
+            f"Container.Update({get_url(action='series_detail', series_name=series_name)},replaceWindow=true)"
         )
 
     except Exception as e:
