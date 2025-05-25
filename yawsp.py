@@ -26,11 +26,34 @@ import uuid
 import series_manager
 import themoviedb
 from themoviedb import TMDB
+import webbrowser
+import requests
 
 STOP_WORDS = {
     'a','an','the','na','do','se','i','to','je','s','že','co'
 }
-
+def trakt_authorize():
+    client_id = _addon.getSetting('trakt_client_id')
+    redirect = 'urn:ietf:wg:oauth:2.0:oob'
+    url = f'https://trakt.tv/oauth/authorize?response_type=code&client_id={client_id}&redirect_uri={redirect}'
+    webbrowser.open(url)
+    code = ask(None)  # Kodi dialog asking for code
+    return code
+def trakt_get_token(code):
+    client_id = _addon.getSetting('trakt_client_id')
+    client_secret = _addon.getSetting('trakt_client_secret')
+    data = {
+        'code': code,
+        'client_id': client_id,
+        'client_secret': client_secret,
+        'redirect_uri': 'urn:ietf:wg:oauth:2.0:oob',
+        'grant_type': 'authorization_code'
+    }
+    r = requests.post('https://api.trakt.tv/oauth/token', json=data, timeout=10)
+    r.raise_for_status()
+    token = r.json().get('access_token')
+    _addon.setSetting('trakt_oauth_token', token)
+    
 def clean_and_tokenize(query: str) -> list:
     """
     Odstraní diakritiku, udělá lowercase, odstraní interpunkci a stop-slova,
@@ -762,6 +785,11 @@ def menu():
     listitem = xbmcgui.ListItem(label=_addon.getLocalizedString(30203))
     listitem.setArt({'icon': 'DefaultAddonsUpdates.png'})
     xbmcplugin.addDirectoryItem(_handle, get_url(action='history'), listitem, True)
+
+    # Trakt Watchlist
+    listitem = xbmcgui.ListItem(label='Moje watchlist (Trakt)')
+    listitem.setArt({'icon': 'DefaultAddonTrakt.png'})
+    xbmcplugin.addDirectoryItem(_handle, get_url(action='trakt_watchlist'), listitem, True)
     
     # YAWsP autor movie library
     if 'true' == _addon.getSetting('experimental'):
@@ -937,6 +965,8 @@ def router(paramstring):
             series_season(params)
         elif params['action'] == 'series_refresh':
             series_refresh(params)
+        elif params['action'] == 'trakt_watchlist':
+            trakt_watchlist(params)
         elif params['action'] == 'series_delete':
             series_name = params['series_name']
             if series_name:
@@ -947,3 +977,37 @@ def router(paramstring):
             menu()
     else:
         menu()
+def trakt_watchlist(params):
+    xbmcplugin.setPluginCategory(_handle,
+        _addon.getAddonInfo('name') + ' - Trakt Watchlist')
+    token = _addon.getSetting('trakt_oauth_token')
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {token}',
+        'trakt-api-version': '2',
+        'trakt-api-key': _addon.getSetting('trakt_client_id')
+    }
+    r = requests.get(
+        'https://api.trakt.tv/users/me/watchlist/movies',
+        headers=headers,
+        timeout=10
+    )
+    r.raise_for_status()
+    for entry in r.json():
+        movie = entry['movie']
+        listitem = xbmcgui.ListItem(label=movie['title'])
+        # art + info
+        poster = movie['images']['poster']['full']
+        if poster:
+            listitem.setArt({'thumb': poster})
+        listitem.setInfo('video', {
+            'title': movie['title'],
+            'plot': movie.get('overview', '')
+        })
+        xbmcplugin.addDirectoryItem(
+            _handle,
+            get_url(action='play', url=movie['ids']['imdb']),
+            listitem,
+            False
+        )
+    xbmcplugin.endOfDirectory(_handle)
