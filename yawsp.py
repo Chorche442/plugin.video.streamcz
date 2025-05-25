@@ -24,7 +24,6 @@ import re
 import zipfile
 import uuid
 import series_manager
-from themoviedb import TMDB
 import webbrowser
 
 # Fallback md5crypt implementation if not available
@@ -108,7 +107,9 @@ if isinstance(_profile, bytes):
     _profile = _profile.decode('utf-8')
 
 # TMDB client
+from themoviedb import TMDB
 tmdb = TMDB(_addon, _profile)
+
 
 def get_url(**kwargs):
     return f'{_url}?{urlencode(kwargs)}'
