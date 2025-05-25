@@ -967,6 +967,12 @@ def router(paramstring):
         # Series Manager actions
         elif params['action'] == 'series':
             series_menu(params)
+        elif params['action'] == 'trakt_watchlist':
+            trakt_watchlist_menu(params)
+        elif params['action'] == 'trakt_watchlist_movies':
+            trakt_watchlist_movies(params)
+        elif params['action'] == 'trakt_watchlist_shows':
+            trakt_watchlist_shows(params)
         elif params['action'] == 'series_search':
             series_search(params)
         elif params['action'] == 'series_search_tmdb':
@@ -990,6 +996,90 @@ def router(paramstring):
     else:
         menu()
 # --- TRaKT Watchlist handler ---
+def trakt_watchlist_menu(params):
+    """Menu pro výběr Filmy vs Seriály z Trakt Watchlistu."""
+    xbmcplugin.setPluginCategory(_handle,
+        _addon.getAddonInfo('name') + ' – Trakt Watchlist')
+    # Filmy
+    li = xbmcgui.ListItem(label='Filmy z watchlistu')
+    li.setArt({'icon': 'DefaultVideo.png'})
+    xbmcplugin.addDirectoryItem(_handle,
+        get_url(action='trakt_watchlist_movies'),
+        li, True)
+    # Seriály
+    li = xbmcgui.ListItem(label='Seriály z watchlistu')
+    li.setArt({'icon': 'DefaultTVShows.png'})
+    xbmcplugin.addDirectoryItem(_handle,
+        get_url(action='trakt_watchlist_shows'),
+        li, True)
+    xbmcplugin.endOfDirectory(_handle)
+def trakt_watchlist_movies(params):
+    """Zobrazí filmy z Trakt Watchlistu a přesměruje na Webshare search."""
+    xbmcplugin.setPluginCategory(_handle,
+        _addon.getAddonInfo('name') + ' – Watchlist (Filmy)')
+    token     = _addon.getSetting('trakt_oauth_token')
+    client_id = _addon.getSetting('trakt_client_id')
+    headers = {
+        'Content-Type':      'application/json',
+        'Authorization':     f'Bearer {token}',
+        'trakt-api-version': '2',
+        'trakt-api-key':     client_id
+    }
+    r = requests.get(
+        'https://api.trakt.tv/users/me/watchlist/movies',
+        headers=headers, timeout=10)
+    r.raise_for_status()
+    for entry in r.json():
+        movie = entry.get('movie', {})
+        title = movie.get('title') or 'Unknown'
+        li = xbmcgui.ListItem(label=title)
+        # artwork
+        poster = movie.get('images', {}).get('poster', {}).get('full')
+        if poster: li.setArt({'thumb': poster})
+        # popisek
+        li.setInfo('video', {'title': title,
+                             'plot': movie.get('overview', '')})
+        # Přesměrujeme kliknutí na Webshare search
+        xbmcplugin.addDirectoryItem(_handle,
+            get_url(action='search', what=title),
+            li,
+            True)
+    xbmcplugin.endOfDirectory(_handle)
+
+def trakt_watchlist_shows(params):
+    """Zobrazí seriály z Trakt Watchlistu a přesměruje na Webshare search."""
+    xbmcplugin.setPluginCategory(_handle,
+        _addon.getAddonInfo('name') + ' – Watchlist (Seriály)')
+    token     = _addon.getSetting('trakt_oauth_token')
+    client_id = _addon.getSetting('trakt_client_id')
+    headers = {
+        'Content-Type':      'application/json',
+        'Authorization':     f'Bearer {token}',
+        'trakt-api-version': '2',
+        'trakt-api-key':     client_id
+    }
+    r = requests.get(
+        'https://api.trakt.tv/users/me/watchlist/shows',
+        headers=headers, timeout=10)
+    r.raise_for_status()
+    for entry in r.json():
+        show = entry.get('show', {})
+        title = show.get('title') or 'Unknown'
+        li = xbmcgui.ListItem(label=title)
+        # artwork
+        poster = show.get('images', {}).get('poster', {}).get('full')
+        if poster: li.setArt({'thumb': poster})
+        # popisek
+        li.setInfo('video', {'title': title,
+                             'plot': show.get('overview', '')})
+        # Přesměrujeme kliknutí na Webshare search
+        xbmcplugin.addDirectoryItem(_handle,
+            get_url(action='search', what=title),
+            li,
+            True)
+    xbmcplugin.endOfDirectory(_handle)
+
+
 def trakt_watchlist(params):
     # Nastavíme kategorii doplňku
     xbmcplugin.setPluginCategory(
