@@ -790,6 +790,11 @@ def menu():
     listitem = xbmcgui.ListItem(label='Moje watchlist (Trakt)')
     listitem.setArt({'icon': 'DefaultAddonTrakt.png'})
     xbmcplugin.addDirectoryItem(_handle, get_url(action='trakt_watchlist'), listitem, True)
+
+    # Trakt – autorizace
+    listitem = xbmcgui.ListItem(label='Autorizovat Trakt')
+    listitem.setArt({'icon': 'DefaultAddonTrakt.png'})
+    xbmcplugin.addDirectoryItem(_handle, get_url(action='trakt_auth'), listitem, True)
     
     # YAWsP autor movie library
     if 'true' == _addon.getSetting('experimental'):
@@ -952,6 +957,13 @@ def router(paramstring):
             download(params)
         elif params['action'] == 'db':
             db(params)
+        elif params['action'] == 'trakt_auth':
+            # nejdřív vyžádej kód, pak token
+            code = trakt_authorize()
+            if code:
+                trakt_get_token(code)
+            # pak zpět do menu
+            menu()
         # Series Manager actions
         elif params['action'] == 'series':
             series_menu(params)
@@ -1011,3 +1023,36 @@ def trakt_watchlist(params):
             False
         )
     xbmcplugin.endOfDirectory(_handle)
+def trakt_authorize():
+    """Otevře prohlížeč, vrátí kód, který uživatel zkopíruje z Trakt."""
+    client_id = _addon.getSetting('trakt_client_id')
+    redirect = 'urn:ietf:wg:oauth:2.0:oob'
+    url = (f'https://trakt.tv/oauth/authorize'
+           f'?response_type=code&client_id={client_id}'
+           f'&redirect_uri={redirect}')
+    webbrowser.open(url)
+    # vyzveme uživatele k vložení kódu
+    code = ask(None)  
+    return code
+
+import requests
+
+def trakt_get_token(code):
+    """Z kódu získá access token a uloží ho do nastavení."""
+    client_id = _addon.getSetting('trakt_client_id')
+    client_secret = _addon.getSetting('trakt_client_secret')
+    data = {
+        'code': code,
+        'client_id': client_id,
+        'client_secret': client_secret,
+        'redirect_uri': 'urn:ietf:wg:oauth:2.0:oob',
+        'grant_type': 'authorization_code'
+    }
+    r = requests.post('https://api.trakt.tv/oauth/token', json=data, timeout=10)
+    r.raise_for_status()
+    token = r.json().get('access_token')
+    if token:
+        _addon.setSetting('trakt_oauth_token', token)
+        popinfo("Trakt", "Autorizace úspěšná", icon=xbmcgui.NOTIFICATION_INFO)
+    else:
+        popinfo("Trakt", "Chyba při autorizaci", icon=xbmcgui.NOTIFICATION_ERROR)
