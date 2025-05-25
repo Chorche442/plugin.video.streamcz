@@ -3,6 +3,7 @@
 # Author: cache-sk
 # Created on: 10.5.2020
 # License: AGPL v.3 https://www.gnu.org/licenses/agpl-3.0.html
+# === FÁZE 1.1: CLEAN & TOKENIZE DOTAZU ===
 
 import io
 import os
@@ -24,6 +25,20 @@ import zipfile
 import uuid
 import series_manager
 import themoviedb
+
+STOP_WORDS = {
+    'a','an','the','na','do','se','i','to','je','s','že','co'
+}
+
+def clean_and_tokenize(query: str) -> list:
+    """
+    Odstraní diakritiku, udělá lowercase, odstraní interpunkci a stop-slova,
+    vrátí seznam čistých tokenů.
+    """
+    q = query.lower()
+    q = unidecode.unidecode(q)
+    q = re.sub(r'[^a-z0-9\s]', ' ', q)
+    return [t for t in q.split() if t not in STOP_WORDS and len(t) > 1]
 
 try:
     from urllib import urlencode
@@ -319,6 +334,8 @@ def search(params):
         sort = params['sort'] if 'sort' in params else SORTS[int(_addon.getSetting('ssort'))]
         limit = int(params['limit']) if 'limit' in params else int(_addon.getSetting('slimit'))
         offset = int(params['offset']) if 'offset' in params else 0
+        tokens = clean_and_tokenize(what)
+        what   = ' '.join(tokens)
         dosearch(token, what, category, sort, limit, offset, 'search')
     else:
         _addon.setSetting('slast',NONE_WHAT)
