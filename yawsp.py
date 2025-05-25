@@ -989,40 +989,73 @@ def router(paramstring):
             menu()
     else:
         menu()
+# --- TRaKT Watchlist handler ---
 def trakt_watchlist(params):
-    xbmcplugin.setPluginCategory(_handle,
-        _addon.getAddonInfo('name') + ' - Trakt Watchlist')
-    token = _addon.getSetting('trakt_oauth_token')
-    headers = {
-        'Content-Type': 'application/json',
-        'Authorization': f'Bearer {token}',
-        'trakt-api-version': '2',
-        'trakt-api-key': _addon.getSetting('trakt_client_id')
-    }
-    r = requests.get(
-        'https://api.trakt.tv/users/me/watchlist/movies',
-        headers=headers,
-        timeout=10
+    # Nastavíme kategorii doplňku
+    xbmcplugin.setPluginCategory(
+        _handle,
+        _addon.getAddonInfo('name') + ' - Trakt Watchlist'
     )
-    r.raise_for_status()
+
+    # 1) Načteme token (v4) a client_id (v3)
+    token     = _addon.getSetting('trakt_oauth_token')
+    client_id = _addon.getSetting('trakt_client_id')
+
+    # Debug: vypsat do logu, co máme
+    xbmc.log(f"[Trakt] token={token!r}, client_id={client_id!r}", xbmc.LOGDEBUG)
+
+    # 2) Sestavíme hlavičky
+    headers = {
+        'Content-Type':      'application/json',
+        'Authorization':     f'Bearer {token}',      # v4 Read Access Token
+        'trakt-api-version': '2',
+        'trakt-api-key':     client_id               # povinné client_id
+    }
+
+    xbmc.log(f"[Trakt] Calling watchlist with headers: {headers}", xbmc.LOGDEBUG)
+
+    # 3) Voláme Trakt endpoint pro watchlist
+    try:
+        r = requests.get(
+            'https://api.trakt.tv/users/me/watchlist/movies',
+            headers=headers,
+            timeout=10
+        )
+        xbmc.log(f"[Trakt] Response: {r.status_code} {r.text}", xbmc.LOGDEBUG)
+        r.raise_for_status()
+    except Exception as e:
+        xbmc.log(f"[Trakt] ERROR fetching watchlist: {e}", xbmc.LOGERROR)
+        popinfo("Trakt", f"Chyba při načítání watchlistu: {e}", icon=xbmcgui.NOTIFICATION_ERROR)
+        xbmcplugin.endOfDirectory(_handle)
+        return
+
+    # 4) Zpracujeme výsledky
     for entry in r.json():
-        movie = entry['movie']
-        listitem = xbmcgui.ListItem(label=movie['title'])
-        # art + info
-        poster = movie['images']['poster']['full']
+        movie = entry.get('movie') or {}
+        title = movie.get('title') or 'Unknown'
+        listitem = xbmcgui.ListItem(label=title)
+
+        # artwork
+        images = movie.get('images', {})
+        poster = images.get('poster', {}).get('full')
         if poster:
             listitem.setArt({'thumb': poster})
+
+        # info
         listitem.setInfo('video', {
-            'title': movie['title'],
-            'plot': movie.get('overview', '')
+            'title': title,
+            'plot':  movie.get('overview', '')
         })
+
         xbmcplugin.addDirectoryItem(
             _handle,
-            get_url(action='play', url=movie['ids']['imdb']),
+            get_url(action='play', url=movie.get('ids', {}).get('imdb')),
             listitem,
             False
         )
+
     xbmcplugin.endOfDirectory(_handle)
+
 def trakt_authorize():
     """Otevře prohlížeč, vrátí kód, který uživatel zkopíruje z Trakt."""
     client_id = _addon.getSetting('trakt_client_id')
