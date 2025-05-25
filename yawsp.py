@@ -25,6 +25,7 @@ import zipfile
 import uuid
 import series_manager
 import themoviedb
+from themoviedb import TMDB
 
 STOP_WORDS = {
     'a','an','the','na','do','se','i','to','je','s','že','co'
@@ -69,6 +70,9 @@ _addon = xbmcaddon.Addon()
 _session = requests.Session()
 _session.headers.update(HEADERS)
 _profile = translatePath( _addon.getAddonInfo('profile'))
+# ——— TMDB klient ———
+from themoviedb import TMDB
+tmdb = TMDB(_addon, _profile)
 try:
     _profile = _profile.decode("utf-8")
 except:
@@ -267,31 +271,75 @@ def removesearch(what):
                 traceback.print_exc()
 
 def dosearch(token, what, category, sort, limit, offset, action):
-    response = api('search',{'what':'' if what == NONE_WHAT else what, 'category':category, 'sort':sort, 'limit': limit, 'offset': offset, 'wst':token, 'maybe_removed':'true'})
+    response = api('search', {
+        'what': '' if what == NONE_WHAT else what,
+        'category': category,
+        'sort': sort,
+        'limit': limit,
+        'offset': offset,
+        'wst': token,
+        'maybe_removed': 'true'
+    })
     xml = ET.fromstring(response.content)
+
     if is_ok(xml):
-        
-        if offset > 0: #prev page
+        # prev page
+        if offset > 0:
             listitem = xbmcgui.ListItem(label=_addon.getLocalizedString(30206))
             listitem.setArt({'icon': 'DefaultAddonsSearch.png'})
-            xbmcplugin.addDirectoryItem(_handle, get_url(action=action, what=what, category=category, sort=sort, limit=limit, offset=offset - limit if offset > limit else 0), listitem, True)
-            
+            xbmcplugin.addDirectoryItem(
+                _handle,
+                get_url(action=action, what=what, category=category, sort=sort,
+                        limit=limit, offset=offset - limit if offset > limit else 0),
+                listitem,
+                True
+            )
+
+        # list of files
         for file in xml.iter('file'):
             item = todict(file)
-            commands = []
-            commands.append(( _addon.getLocalizedString(30214), 'Container.Update(' + get_url(action='search',toqueue=item['ident'], what=what, offset=offset) + ')'))
-            listitem = tolistitem(item,commands)
-            xbmcplugin.addDirectoryItem(_handle, get_url(action='play',ident=item['ident'],name=item['name']), listitem, False)
-        
+            commands = [( _addon.getLocalizedString(30214),
+                          'Container.Update(' + get_url(action='search', toqueue=item['ident'], what=what, offset=offset) + ')')]
+            listitem = tolistitem(item, commands)
+
+            # ——— TMDB metadata ———
+            title = item.get('name') or item.get('title')
+            if title and tmdb.API_KEY:
+                tmdb_results = tmdb.search_movie(title)
+                if tmdb_results:
+                    meta = tmdb_results[0]
+                    poster = tmdb.get_poster_url(meta.get('poster_path'))
+                    if poster:
+                        listitem.setArt({'thumb': poster})
+                    listitem.setInfo('video', {
+                        'title': meta.get('title'),
+                        'plot': meta.get('overview', ''),
+                        'rating': meta.get('vote_average', 0)
+                    })
+
+            xbmcplugin.addDirectoryItem(
+                _handle,
+                get_url(action=action, what=what, category=category, sort=sort,
+                        limit=limit, offset=offset),
+                listitem,
+                False
+            )
+
+        # next page
         try:
             total = int(xml.find('total').text)
         except:
             total = 0
-            
-        if offset + limit < total: #next page
+        if offset + limit < total:
             listitem = xbmcgui.ListItem(label=_addon.getLocalizedString(30207))
             listitem.setArt({'icon': 'DefaultAddonsSearch.png'})
-            xbmcplugin.addDirectoryItem(_handle, get_url(action=action, what=what, category=category, sort=sort, limit=limit, offset=offset+limit), listitem, True)
+            xbmcplugin.addDirectoryItem(
+                _handle,
+                get_url(action=action, what=what, category=category, sort=sort,
+                        limit=limit, offset=offset + limit),
+                listitem,
+                True
+            )
     else:
         popinfo(_addon.getLocalizedString(30107), icon=xbmcgui.NOTIFICATION_WARNING)
 
