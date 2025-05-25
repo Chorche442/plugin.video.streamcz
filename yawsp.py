@@ -294,6 +294,7 @@ def removesearch(what):
                 traceback.print_exc()
 
 def dosearch(token, what, category, sort, limit, offset, action):
+    xbmc.log(f"[dosearch] ENTER what={what!r} cat={category} sort={sort} lim={limit} off={offset}", xbmc.LOGDEBUG)
     response = api('search', {
         'what': '' if what == NONE_WHAT else what,
         'category': category,
@@ -311,6 +312,7 @@ def dosearch(token, what, category, sort, limit, offset, action):
 
     # --- Předchozí stránka ---
     if offset > 0:
+        xbmc.log("[dosearch] Adding PREV page item", xbmc.LOGDEBUG)
         listitem = xbmcgui.ListItem(label=_addon.getLocalizedString(30206))
         listitem.setArt({'icon': 'DefaultAddonsSearch.png'})
         xbmcplugin.addDirectoryItem(
@@ -328,56 +330,51 @@ def dosearch(token, what, category, sort, limit, offset, action):
         )
 
     # --- Hlavní seznam výsledků se scoringem ---
-    items = [todict(file) for file in xml.iter('file')]
+    items = [todict(f) for f in xml.iter('file')]
+    xbmc.log(f"[dosearch] Loaded {len(items)} raw items", xbmc.LOGDEBUG)
 
-    # Tokeny původního dotazu
     query_tokens = clean_and_tokenize(what)
-
-    # Vypočítáme skóre (relevance + kvalita)
     scored = []
     for item in items:
         # relevance
-        name_tokens = clean_and_tokenize(item.get('name', ''))
-        rel_score = len(set(query_tokens) & set(name_tokens))
-        # kvalita (rozlišení z prvního video streamu)
-        stream = item.get('video', {}).get('stream', {})
-        if isinstance(stream, list):
-            stream = stream[0]
+        name_tokens = clean_and_tokenize(item.get('name',''))
+        rel = len(set(query_tokens) & set(name_tokens))
+        # kvalita
+        stream = item.get('video',{}).get('stream',{})
+        if isinstance(stream,list): stream = stream[0]
         try:
-            width = int(stream.get('width', 0))
-            height = int(stream.get('height', 0))
+            w = int(stream.get('width',0)); h = int(stream.get('height',0))
         except:
-            width = height = 0
-        qual_score = width * height
-        scored.append((rel_score, qual_score, item))
+            w = h = 0
+        qual = w * h
+        scored.append((rel,qual,item))
+    scored.sort(key=lambda x:(x[0],x[1]), reverse=True)
+    xbmc.log(f"[dosearch] Scored items, top scores={(scored[0][0],scored[0][1]) if scored else 'n/a'}", xbmc.LOGDEBUG)
 
-    # Seřadíme sestupně dle relevance a kvality
-    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
-
-    # Vykreslíme každý prvek
-    for rel_score, qual_score, item in scored:
-        # Context menu položka „Přidat do fronty“
+    for rel, qual, item in scored:
+        xbmc.log(f"[dosearch] Rendering item {item.get('name')} rel={rel} qual={qual}", xbmc.LOGDEBUG)
+        # context menu
         commands = [
-            (
-                _addon.getLocalizedString(30214),
-                'Container.Update(' + get_url(
-                    action=action,
-                    toqueue=item['ident'],
-                    what=what,
-                    category=category,
-                    sort=sort,
-                    limit=limit,
-                    offset=offset
-                ) + ')'
-            )
+            (_addon.getLocalizedString(30214),
+             'Container.Update(' + get_url(
+                 action=action,
+                 toqueue=item['ident'],
+                 what=what,
+                 category=category,
+                 sort=sort,
+                 limit=limit,
+                 offset=offset
+             ) + ')')
         ]
         listitem = tolistitem(item, commands)
 
-        # ——— TMDB metadata ———
+        # TMDB metadata
         title = item.get('name') or item.get('title')
         tmdb_key = _addon.getSetting('tmdb_token')
         if title and tmdb_key:
+            xbmc.log(f"[dosearch] Looking up TMDB for {title!r}", xbmc.LOGDEBUG)
             tmdb_results = tmdb.search_movie(title)
+            xbmc.log(f"[dosearch] TMDB returned {len(tmdb_results) if tmdb_results else 0} results", xbmc.LOGDEBUG)
             if tmdb_results:
                 meta = tmdb_results[0]
                 poster = tmdb.get_poster_url(meta.get('poster_path'))
@@ -385,8 +382,8 @@ def dosearch(token, what, category, sort, limit, offset, action):
                     listitem.setArt({'thumb': poster})
                 listitem.setInfo('video', {
                     'title':  meta.get('title'),
-                    'plot':   meta.get('overview', ''),
-                    'rating': meta.get('vote_average', 0)
+                    'plot':   meta.get('overview',''),
+                    'rating': meta.get('vote_average',0)
                 })
 
         xbmcplugin.addDirectoryItem(
@@ -409,7 +406,9 @@ def dosearch(token, what, category, sort, limit, offset, action):
         total = int(xml.find('total').text)
     except:
         total = 0
+    xbmc.log(f"[dosearch] total from API={total}", xbmc.LOGDEBUG)
     if offset + limit < total:
+        xbmc.log("[dosearch] Adding NEXT page item", xbmc.LOGDEBUG)
         listitem = xbmcgui.ListItem(label=_addon.getLocalizedString(30207))
         listitem.setArt({'icon': 'DefaultAddonsSearch.png'})
         xbmcplugin.addDirectoryItem(
