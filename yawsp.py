@@ -842,37 +842,44 @@ def series_search_tmdb(params):
 def series_search(params):
     """Search for a TV series and organize it into seasons and episodes"""
     token = revalidate()
-    
-    # Ask for series name
-    series_name = ask(None)
+
+    # 1) Získej název seriálu z parametrů, pokud není, teprve pak se ptej
+    series_name = params.get('series_name')
     if not series_name:
-        xbmcplugin.endOfDirectory(_handle, succeeded=False)
-        return
-    
-    # Initialize SeriesManager and perform search
-    sm = series_manager.SeriesManager(_addon, _profile)
-    
-    # Show progress dialog
-    progress = xbmcgui.DialogProgress()
-    progress.create('Webshare Cinema', f'Vyhledavam serial {series_name}...')
-    
-    try:
-        # Search for the series
-        series_data = sm.search_series(series_name, api, token)
-        
-        if not series_data or not series_data['seasons']:
-            progress.close()
-            popinfo('Nenalezeny zadne epizody tohoto serialu', icon=xbmcgui.NOTIFICATION_WARNING)
+        series_name = ask(None)
+        if not series_name:
             xbmcplugin.endOfDirectory(_handle, succeeded=False)
             return
-        
-        # Success
+
+    # 2) Inicializuj SeriesManager a spusť vyhledávání
+    sm = series_manager.SeriesManager(_addon, _profile)
+
+    # 3) Zobraz progress dialog
+    progress = xbmcgui.DialogProgress()
+    progress.create('Webshare Cinema', f'Vyhledavam serial {series_name}...')
+
+    try:
+        # 4) Vyhledej seriál
+        series_data = sm.search_series(series_name, api, token)
+
+        # 5) Žádné výsledky?
+        if not series_data or not series_data.get('seasons'):
+            progress.close()
+            popinfo('Nenalezeny žádné epizody tohoto seriálu', icon=xbmcgui.NOTIFICATION_WARNING)
+            xbmcplugin.endOfDirectory(_handle, succeeded=False)
+            return
+
+        # 6) Úspěch
         progress.close()
-        popinfo(f'Nalezeno {sum(len(season) for season in series_data["seasons"].values())} epizod v {len(series_data["seasons"])} sezonach')
-        
-        # Redirect to series detail
-        xbmc.executebuiltin(f'Container.Update({get_url(action="series_detail", series_name=series_name)})')
-        
+        total_eps = sum(len(s) for s in series_data['seasons'].values())
+        total_seasons = len(series_data['seasons'])
+        popinfo(f'Nalezeno {total_eps} epizod v {total_seasons} sezonách')
+
+        # 7) Přejdi na detail seriálu
+        xbmc.executebuiltin(
+            f"Container.Update({get_url(action='series_detail', series_name=series_name)})"
+        )
+
     except Exception as e:
         progress.close()
         traceback.print_exc()
@@ -1074,7 +1081,7 @@ def trakt_watchlist_shows(params):
                              'plot': show.get('overview', '')})
         # Přesměrujeme kliknutí na Webshare search
         xbmcplugin.addDirectoryItem(_handle,
-            get_url(action='search', what=title),
+            get_url(action='series_search', series_name=title),
             li,
             True)
     xbmcplugin.endOfDirectory(_handle)
